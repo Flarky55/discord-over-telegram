@@ -1,15 +1,12 @@
 import asyncio
 import logging
-from dotenv import load_dotenv
 from os import getenv
+from platform import system
 from discord import Client, Message as DsMessage, DMChannel, GroupChannel
 from telegram import Update, Message as TgMessage
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, PicklePersistence
 from telegram.constants import ReactionEmoji
-from platform import system
 
-
-load_dotenv()
 
 # https://github.com/aio-libs/aiodns?tab=readme-ov-file#note-for-windows-users
 if system() == "Windows":
