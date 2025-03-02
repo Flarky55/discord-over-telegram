@@ -2,8 +2,10 @@ import asyncio
 import logging
 from os import getenv
 from platform import system
-from discord import Client, Message as DsMessage, DMChannel, GroupChannel
-from telegram import Update, Message as TgMessage
+from collections import defaultdict
+from itertools import chain
+from discord import Client, Message as DsMessage, DMChannel, GroupChannel, Attachment
+from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaAudio
 from telegram.ext import ApplicationBuilder, MessageHandler, CallbackContext, PicklePersistence, filters
 from telegram.constants import ReactionEmoji
 
@@ -12,10 +14,16 @@ from telegram.constants import ReactionEmoji
 if system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# logging.basicConfig(
-#     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-# )
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 # logging.getLogger("httpx").setLevel(logging.WARNING)
+
+TRANSLATE_CONTENT_TYPE = {
+    "application/pdf": "document",
+    "text": "document",
+    "image": "photo",
+}
 
 
 app_tg = (
@@ -27,71 +35,109 @@ app_tg = (
 
 
 class SelfClient(Client):
-    def __is_valid_message(self, message: DsMessage):
+    def __is_dm(self, message: DsMessage):
         if message.author == self.user:
             return False
 
-        return \
-            isinstance(message.channel, DMChannel) or isinstance(message.channel, GroupChannel)\
-            or self.user in message.mentions or message.mention_everyone
+        return isinstance(message.channel, DMChannel)
+        # return \
+        #     isinstance(message.channel, DMChannel) or isinstance(message.channel, GroupChannel)\
+        #     or self.user in message.mentions or message.mention_everyone
 
-
+    # TODO: support mentions, not only DMs
     async def on_message(self, message: DsMessage):
-        if not self.__is_valid_message(message):
+        if not self.__is_dm(message):
             return
         
         chat_id = -1002413580346
 
         thread_id = app_tg.bot_data.get(message.author.id)
+        message_reference_id = message.reference and app_tg.bot_data.get(message.reference.message_id)[0]
 
         if thread_id is None:
             topic = await app_tg.bot.create_forum_topic(chat_id, message.author.name)
             thread_id = topic.message_thread_id
 
-            app_tg.bot_data[message.author.id]  = thread_id
-            app_tg.bot_data[thread_id]          = message.author.id
+            app_tg.bot_data.update({
+                message.author.id: thread_id,
+                thread_id: message.author.id
+            })
 
             await app_tg.update_persistence()
+            
 
-        message_relayed = await app_tg.bot.send_message(chat_id, message.clean_content, message_thread_id=thread_id)
+        media = defaultdict(list)
 
-        app_tg.bot_data[message.id]         = message_relayed.id
-        app_tg.bot_data[message_relayed.id] = message.id
+        # TODO: support plain text files (.txt, .lua, etc.)
+        for attachment in message.attachments:
+            content_type = attachment.content_type
+            content_type = TRANSLATE_CONTENT_TYPE.get(content_type, content_type).split("/")[0]
+            content_type = TRANSLATE_CONTENT_TYPE.get(content_type, content_type)
+
+            match content_type:
+                case "photo":
+                    media[content_type].append(InputMediaPhoto(media=attachment.url, has_spoiler=attachment.is_spoiler(), caption=attachment.description))
+                case "video":
+                    media[content_type].append(InputMediaVideo(media=attachment.url, has_spoiler=attachment.is_spoiler()))
+                case _:
+                    media[content_type].append(InputMedia(content_type, media=attachment.url))
+
+
+        messages_relayed: list[TgMessage] = [] 
+
+        if message.clean_content:
+            # TODO: parse Markdown
+            messages_relayed.append(await app_tg.bot.send_message(chat_id, message.clean_content, message_thread_id=thread_id, reply_to_message_id=message_reference_id))
+
+        for m in media.values():
+            messages_relayed.extend(await app_tg.bot.send_media_group(chat_id, m, message_thread_id=thread_id, reply_to_message_id=message_reference_id))
+
+        app_tg.bot_data.update({
+            message.id: [m.id for m in messages_relayed],
+            **{m.id: message.id for m in messages_relayed}
+        })
+
+        await app_tg.update_persistence()
 
             
     async def on_message_edit(self, before: DsMessage, after: DsMessage):
         chat_id = -1002413580346
 
-        message_id_key = before.id
-        message_id = app_tg.bot_data.get(message_id_key)
+        message_ids = app_tg.bot_data.get(before.id)
         
-        if message_id is None:
+        if message_ids is None:
             return
 
-        await app_tg.bot.send_message(chat_id, f"Изменено:\n{after.clean_content}", reply_to_message_id=message_id)
+        await app_tg.bot.send_message(chat_id, f"Изменено:\n{after.clean_content}", reply_to_message_id=message_ids[0])
 
     async def on_message_delete(self, message: DsMessage):
         chat_id = -1002413580346
 
-        message_id_key = message.id
-        message_id = app_tg.bot_data.get(message_id_key)
-        
-        if message_id is None:
+        message_ids = app_tg.bot_data.get(message.id)
+
+        if message_ids is None:
             return
         
-        await app_tg.bot.set_message_reaction(chat_id, message_id, ReactionEmoji.FIRE)
+        for message_id in message_ids:
+            await app_tg.bot.set_message_reaction(chat_id, message_id, ReactionEmoji.FIRE)
 
 
 client_discord = SelfClient()
 
 
-# TODO: fix markdown formatting not sending
+# TODO: parse Markdown
 async def callback(update: Update, context: CallbackContext):
     user_id = context.bot_data.get(update.message.message_thread_id)
-
     user = client_discord.get_user(user_id)
 
-    await user.dm_channel.send(update.message.text)
+    message = await user.dm_channel.send(update.message.text + "\n-# Discord-over-Telegram")
+
+    app_tg.bot_data.update({
+        message.id: update.message.id,
+        update.message.id: message.id,
+    })
+
+    await app_tg.update_persistence()
 
 app_tg.add_handler(MessageHandler(filters.TEXT, callback))
 
