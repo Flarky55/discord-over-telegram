@@ -1,3 +1,5 @@
+#!/bin/bash
+
 export $(grep -v '^#' .env | xargs)
 
 source .venv/bin/activate
