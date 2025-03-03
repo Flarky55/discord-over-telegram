@@ -1,3 +1,4 @@
 python-telegram-bot
 python-telegram-bot[webhooks]
 discord.py-self @ git+https://github.com/dolfies/discord.py-self
+python-dotenv
