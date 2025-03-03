@@ -3,15 +3,11 @@ import logging
 from os import getenv
 from platform import system
 from collections import defaultdict
-from itertools import chain
-from dotenv import load_dotenv
 from discord import Client, Message as DsMessage, DMChannel, GroupChannel, Attachment
 from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaAudio
 from telegram.ext import ApplicationBuilder, MessageHandler, CallbackContext, PicklePersistence, filters
 from telegram.constants import ReactionEmoji
 
-
-load_dotenv()
 
 # https://github.com/aio-libs/aiodns?tab=readme-ov-file#note-for-windows-users
 if system() == "Windows":
