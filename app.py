@@ -51,10 +51,11 @@ class SelfClient(Client):
         chat_id = -1002413580346
 
         thread_id = app_tg.bot_data.get(message.author.id)
+        thread_name = message.author.relationship.nick or message.author.global_name
         message_reference_id = message.reference and app_tg.bot_data.get(message.reference.message_id)[0]
 
         if thread_id is None:
-            topic = await app_tg.bot.create_forum_topic(chat_id, message.author.name)
+            topic = await app_tg.bot.create_forum_topic(chat_id, thread_name)
             thread_id = topic.message_thread_id
 
             app_tg.bot_data.update({
@@ -63,6 +64,8 @@ class SelfClient(Client):
             })
 
             await app_tg.update_persistence()
+        else:
+            await app_tg.bot.edit_forum_topic(chat_id, thread_id, thread_name)
             
 
         media = defaultdict(list)
