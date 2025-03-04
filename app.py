@@ -146,14 +146,17 @@ async def run_telegram():
 
     await app_tg.initialize()
 
-    await app_tg.updater.start_webhook(
-        listen="0.0.0.0",
-        port=netloc.split(":")[1],
-        secret_token=getenv("TELEGRAM_WEBHOOK_SECRET"),
-        key=getenv("TELEGRAM_WEBHOOK_KEY"),
-        cert=getenv("TELEGRAM_WEBHOOK_CERT"),
-        webhook_url="https://" + netloc
-    )
+    if netloc:
+        await app_tg.updater.start_webhook(
+            listen="0.0.0.0",
+            port=netloc.split(":")[1],
+            secret_token=getenv("TELEGRAM_WEBHOOK_SECRET"),
+            key=getenv("TELEGRAM_WEBHOOK_KEY"),
+            cert=getenv("TELEGRAM_WEBHOOK_CERT"),
+            webhook_url="https://" + netloc
+        )
+    else:
+        await app_tg.updater.start_polling()
 
     await app_tg.start()
 
