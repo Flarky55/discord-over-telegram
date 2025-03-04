@@ -3,10 +3,11 @@ import logging
 from os import getenv
 from platform import system
 from collections import defaultdict
-from discord import Client, Message as DsMessage, DMChannel, GroupChannel, Attachment
-from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaAudio
+from discord import Client, Message as DsMessage, DMChannel
+from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo
 from telegram.ext import ApplicationBuilder, MessageHandler, CallbackContext, PicklePersistence, filters
 from telegram.constants import ReactionEmoji
+from telegram.error import BadRequest
 
 
 # https://github.com/aio-libs/aiodns?tab=readme-ov-file#note-for-windows-users
@@ -65,8 +66,12 @@ class SelfClient(Client):
 
             await app_tg.update_persistence()
         else:
-            await app_tg.bot.edit_forum_topic(chat_id, thread_id, thread_name)
-            
+            # Ignore exception when topic was not modified
+            try:
+                await app_tg.bot.edit_forum_topic(chat_id, thread_id, thread_name)
+            except BadRequest as e:
+                if e.message != "Topic_not_modified":
+                    raise e
 
         media = defaultdict(list)
 
