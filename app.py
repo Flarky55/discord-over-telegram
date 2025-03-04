@@ -110,6 +110,7 @@ class SelfClient(Client):
         if message_ids is None:
             return
 
+        # TODO: show diff
         await app_tg.bot.send_message(chat_id, f"Изменено:\n{after.clean_content}", reply_to_message_id=message_ids[0])
 
     async def on_message_delete(self, message: DsMessage):
@@ -129,10 +130,13 @@ client_discord = SelfClient()
 
 # TODO: parse Markdown
 async def callback(update: Update, context: CallbackContext):
-    user_id = context.bot_data.get(update.message.message_thread_id)
-    user = client_discord.get_user(user_id)
+    user = client_discord.get_user(
+        context.bot_data.get(update.message.message_thread_id))
 
-    message = await user.dm_channel.send(update.message.text + "\n-# Discord-over-Telegram")
+    reference = update.message.reply_to_message.text and user.dm_channel.get_partial_message(
+        context.bot_data.get(update.message.reply_to_message.id))
+
+    message: DsMessage = await user.dm_channel.send(update.message.text, reference=reference)
 
     app_tg.bot_data.update({
         message.id: update.message.id,
