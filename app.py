@@ -152,7 +152,7 @@ async def callback(update: Update, context: CallbackContext):
     user = client_discord.get_user(
         context.bot_data.get(update.message.message_thread_id))
 
-    reference = update.message.reply_to_message.text and user.dm_channel.get_partial_message(
+    reference = update.message.reply_to_message.id != update.message.message_thread_id and user.dm_channel.get_partial_message(
         context.bot_data.get(update.message.reply_to_message.id))
 
     message: DsMessage = await user.dm_channel.send(update.message.text, reference=reference)
