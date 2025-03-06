@@ -102,7 +102,6 @@ class SelfClient(Client):
 
         messages_relayed: list[TgMessage] = []
 
-
         if message.clean_content and not (sum(len(l) for l in media.values()) == 1 and set(media.keys()) <= CONTENT_IN_CAPTION_MEDIA_TYPE):
             # TODO: parse Markdown
             messages_relayed.append(
