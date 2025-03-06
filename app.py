@@ -25,6 +25,8 @@ TRANSLATE_CONTENT_TYPE = {
     "image": "photo",
 }
 
+CONTENT_IN_CAPTION_MEDIA_TYPE = {"photo", "video"}
+
 
 app_tg = (
     ApplicationBuilder()
@@ -83,21 +85,34 @@ class SelfClient(Client):
 
             match content_type:
                 case "photo":
-                    media[content_type].append(InputMediaPhoto(media=attachment.url, has_spoiler=attachment.is_spoiler(), caption=attachment.description))
+                    media[content_type].append(InputMediaPhoto(
+                        media=attachment.url, has_spoiler=attachment.is_spoiler(),
+                        caption=attachment.description or message.clean_content, show_caption_above_media=attachment.description is None)
+                    )
                 case "video":
-                    media[content_type].append(InputMediaVideo(media=attachment.url, has_spoiler=attachment.is_spoiler()))
+                    media[content_type].append(InputMediaVideo(
+                        media=attachment.url, has_spoiler=attachment.is_spoiler(),
+                        caption=message.clean_content, show_caption_above_media=True)
+                    )
                 case _:
-                    media[content_type].append(InputMedia(content_type, media=attachment.url))
+                    media[content_type].append(InputMedia(
+                        content_type, media=attachment.url)
+                    )
 
 
-        messages_relayed: list[TgMessage] = [] 
+        messages_relayed: list[TgMessage] = []
 
-        if message.clean_content:
+
+        if message.clean_content and not (sum(len(l) for l in media.values()) == 1 and set(media.keys()) <= CONTENT_IN_CAPTION_MEDIA_TYPE):
             # TODO: parse Markdown
-            messages_relayed.append(await app_tg.bot.send_message(chat_id, message.clean_content, message_thread_id=thread_id, reply_to_message_id=message_reference_id))
+            messages_relayed.append(
+                await app_tg.bot.send_message(chat_id, message.clean_content, message_thread_id=thread_id, reply_to_message_id=message_reference_id)
+            )
 
         for m in media.values():
-            messages_relayed.extend(await app_tg.bot.send_media_group(chat_id, m, message_thread_id=thread_id, reply_to_message_id=message_reference_id))
+            messages_relayed.extend(
+                await app_tg.bot.send_media_group(chat_id, m, message_thread_id=thread_id, reply_to_message_id=message_reference_id)
+            )
 
         app_tg.bot_data.update({
             message.id: [m.id for m in messages_relayed],
