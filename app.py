@@ -55,7 +55,7 @@ class SelfClient(Client):
 
         thread_id = app_tg.bot_data.get(message.author.id)
         thread_name = message.author.relationship.nick or message.author.display_name
-        message_reference_id = app_tg.bot_data.get(message.reference.message_id)[0] if message.reference else None
+        message_reference_id = app_tg.bot_data.get(message.reference.message_id)[0] if message.reference is not None else None
 
         if thread_id is None:
             topic = await app_tg.bot.create_forum_topic(chat_id, thread_name)
@@ -161,7 +161,7 @@ async def callback(update: Update, context: CallbackContext):
     message: DsMessage = await user.dm_channel.send(update.message.text, reference=reference)
 
     app_tg.bot_data.update({
-        message.id: update.message.id,
+        message.id: [update.message.id],
         update.message.id: message.id,
     })
 
