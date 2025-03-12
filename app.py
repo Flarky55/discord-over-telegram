@@ -29,6 +29,7 @@ TRANSLATE_CONTENT_TYPE = {
 
 CONTENT_IN_CAPTION_MEDIA_TYPE = {"photo", "video"}
 
+
 class StoredDiscordMessage(TypedDict):
     id: int
     channel_id: int
@@ -37,9 +38,9 @@ class StoredDiscordMessage(TypedDict):
 # TODO: Acknowledge
 app_tg = (
     ApplicationBuilder()
-          .token(getenv("TELEGRAM_TOKEN"))
-          .persistence(PicklePersistence(filepath="data.pickle"))
-          .build()
+    .token(getenv("TELEGRAM_TOKEN"))
+    .persistence(PicklePersistence(filepath="data.pickle"))
+    .build()
 )
 
 
@@ -50,11 +51,10 @@ class SelfClient(Client):
 
         return isinstance(message.channel, DMChannel)
 
-
     async def on_message(self, message: DsMessage):
         if not self.__is_dm(message):
             return
-        
+
         chat_id = -1002413580346
 
         thread_id: int = app_tg.bot_data.get(message.channel.id)
@@ -124,12 +124,11 @@ class SelfClient(Client):
 
         await app_tg.update_persistence()
 
-            
     async def on_message_edit(self, before: DsMessage, after: DsMessage):
         chat_id = -1002413580346
 
         message_ids: list[int] = app_tg.bot_data.get(before.id)
-        
+
         if not message_ids:
             return
 
@@ -144,7 +143,6 @@ class SelfClient(Client):
 
         if not message_ids:
             return
-        
 
         for message_id in message_ids:
             await app_tg.bot.set_message_reaction(chat_id, message_id, ReactionEmoji.FIRE)
@@ -158,15 +156,16 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_id = context.bot_data.get(update.message.message_thread_id)
 
     channel = client_discord.get_channel(channel_id) or await client_discord.fetch_channel(channel_id)
-    
+
     if not channel:
         return
-    
+
     reference = None
 
     if update.message.reply_to_message.id != update.message.message_thread_id:
-        message_data: StoredDiscordMessage = context.bot_data.get(update.message.reply_to_message.id)
-        
+        message_data: StoredDiscordMessage = context.bot_data.get(
+            update.message.reply_to_message.id)
+
         reference = channel.get_partial_message(message_data["id"])
 
 
@@ -183,13 +182,14 @@ app_tg.add_handler(MessageHandler(filters.TEXT, callback))
 
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message_data: StoredDiscordMessage = context.bot_data.get(update.message_reaction.message_id)
+    message_data: StoredDiscordMessage = context.bot_data.get(
+        update.message_reaction.message_id)
 
     channel = client_discord.get_channel(message_data["channel_id"]) or await client_discord.fetch_channel(message_data["channel_id"])
 
     if not channel:
         return
-    
+
     message = channel.get_partial_message(message_data["id"])
 
     if not message:
@@ -197,12 +197,14 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     for reaction in set(update.message_reaction.old_reaction) - set(update.message_reaction.new_reaction):
-        if not isinstance(reaction, ReactionTypeEmoji): continue
+        if not isinstance(reaction, ReactionTypeEmoji):
+            continue
 
         await message.remove_reaction(reaction.emoji, client_discord.user)
 
     for reaction in update.message_reaction.new_reaction:
-        if not isinstance(reaction, ReactionTypeEmoji): continue
+        if not isinstance(reaction, ReactionTypeEmoji):
+            continue
 
         await message.add_reaction(reaction.emoji)
 
