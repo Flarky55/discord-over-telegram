@@ -3,10 +3,11 @@ import logging
 from os import getenv
 from platform import system
 from collections import defaultdict
+from typing import TypedDict
 from discord import Client, Message as DsMessage, DMChannel
-from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo
-from telegram.ext import ApplicationBuilder, MessageHandler, CallbackContext, PicklePersistence, filters
-from telegram.constants import ReactionEmoji
+from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, ReactionTypeEmoji
+from telegram.ext import ApplicationBuilder, MessageHandler, MessageReactionHandler, ContextTypes, PicklePersistence, filters
+from telegram.constants import ReactionEmoji, ReactionType
 from telegram.error import BadRequest
 
 
@@ -19,6 +20,7 @@ logging.basicConfig(
 )
 # logging.getLogger("httpx").setLevel(logging.WARNING)
 
+
 TRANSLATE_CONTENT_TYPE = {
     "application/pdf": "document",
     "text": "document",
@@ -27,7 +29,12 @@ TRANSLATE_CONTENT_TYPE = {
 
 CONTENT_IN_CAPTION_MEDIA_TYPE = {"photo", "video"}
 
+class StoredDiscordMessage(TypedDict):
+    id: int
+    channel_id: int
 
+
+# TODO: Acknowledge
 app_tg = (
     ApplicationBuilder()
           .token(getenv("TELEGRAM_TOKEN"))
@@ -42,28 +49,25 @@ class SelfClient(Client):
             return False
 
         return isinstance(message.channel, DMChannel)
-        # return \
-        #     isinstance(message.channel, DMChannel) or isinstance(message.channel, GroupChannel)\
-        #     or self.user in message.mentions or message.mention_everyone
 
-    # TODO: support mentions, not only DMs
+
     async def on_message(self, message: DsMessage):
         if not self.__is_dm(message):
             return
         
         chat_id = -1002413580346
 
-        thread_id = app_tg.bot_data.get(message.author.id)
+        thread_id: int = app_tg.bot_data.get(message.channel.id)
         thread_name = message.author.relationship.nick or message.author.display_name
-        message_reference_id = app_tg.bot_data.get(message.reference.message_id)[0] if message.reference is not None else None
+        message_reference_id = app_tg.bot_data.get(message.reference.message_id)[0] if message.reference else None
 
-        if thread_id is None:
+        if not thread_id:
             topic = await app_tg.bot.create_forum_topic(chat_id, thread_name)
             thread_id = topic.message_thread_id
 
             app_tg.bot_data.update({
-                message.author.id: thread_id,
-                thread_id: message.author.id
+                message.channel.id: thread_id,
+                thread_id: message.channel.id
             })
 
             await app_tg.update_persistence()
@@ -87,7 +91,7 @@ class SelfClient(Client):
                 case "photo":
                     media[content_type].append(InputMediaPhoto(
                         media=attachment.url, has_spoiler=attachment.is_spoiler(),
-                        caption=attachment.description or message.clean_content, show_caption_above_media=attachment.description is None)
+                        caption=attachment.description or message.clean_content, show_caption_above_media=not attachment.description)
                     )
                 case "video":
                     media[content_type].append(InputMediaVideo(
@@ -115,7 +119,7 @@ class SelfClient(Client):
 
         app_tg.bot_data.update({
             message.id: [m.id for m in messages_relayed],
-            **{m.id: message.id for m in messages_relayed}
+            **{m.id: {"id": message.id, "channel_id": message.channel.id} for m in messages_relayed}
         })
 
         await app_tg.update_persistence()
@@ -124,10 +128,11 @@ class SelfClient(Client):
     async def on_message_edit(self, before: DsMessage, after: DsMessage):
         chat_id = -1002413580346
 
-        message_ids = app_tg.bot_data.get(before.id)
+        message_ids: list[int] = app_tg.bot_data.get(before.id)
         
-        if message_ids is None:
+        if not message_ids:
             return
+
 
         # TODO: show diff
         await app_tg.bot.send_message(chat_id, f"Изменено:\n{after.clean_content}", reply_to_message_id=message_ids[0])
@@ -135,11 +140,12 @@ class SelfClient(Client):
     async def on_message_delete(self, message: DsMessage):
         chat_id = -1002413580346
 
-        message_ids = app_tg.bot_data.get(message.id)
+        message_ids: list[int] = app_tg.bot_data.get(message.id)
 
-        if message_ids is None:
+        if not message_ids:
             return
         
+
         for message_id in message_ids:
             await app_tg.bot.set_message_reaction(chat_id, message_id, ReactionEmoji.FIRE)
 
@@ -147,27 +153,60 @@ class SelfClient(Client):
 client_discord = SelfClient()
 
 
-# TODO: parse Markdown
-async def callback(update: Update, context: CallbackContext):
-    user = client_discord.get_user(
-        context.bot_data.get(update.message.message_thread_id))
+# TODO: parse Markdown, send media
+async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    channel_id = context.bot_data.get(update.message.message_thread_id)
 
-    reference = (
-        user.dm_channel.get_partial_message(context.bot_data.get(
-            update.message.reply_to_message.id))
-        if update.message.reply_to_message.id != update.message.message_thread_id else None
-    )
+    channel = client_discord.get_channel(channel_id) or await client_discord.fetch_channel(channel_id)
+    
+    if not channel:
+        return
+    
+    reference = None
 
-    message: DsMessage = await user.dm_channel.send(update.message.text, reference=reference)
+    if update.message.reply_to_message.id != update.message.message_thread_id:
+        message_data: StoredDiscordMessage = context.bot_data.get(update.message.reply_to_message.id)
+        
+        reference = channel.get_partial_message(message_data["id"])
+
+
+    message: DsMessage = await channel.send(update.message.text, reference=reference)
 
     app_tg.bot_data.update({
         message.id: [update.message.id],
-        update.message.id: message.id,
+        update.message.id: {"id": message.id, "channel_id": message.channel.id},
     })
 
     await app_tg.update_persistence()
 
 app_tg.add_handler(MessageHandler(filters.TEXT, callback))
+
+
+async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message_data: StoredDiscordMessage = context.bot_data.get(update.message_reaction.message_id)
+
+    channel = client_discord.get_channel(message_data["channel_id"]) or await client_discord.fetch_channel(message_data["channel_id"])
+
+    if not channel:
+        return
+    
+    message = channel.get_partial_message(message_data["id"])
+
+    if not message:
+        return
+
+
+    for reaction in set(update.message_reaction.old_reaction) - set(update.message_reaction.new_reaction):
+        if not isinstance(reaction, ReactionTypeEmoji): continue
+
+        await message.remove_reaction(reaction.emoji, client_discord.user)
+
+    for reaction in update.message_reaction.new_reaction:
+        if not isinstance(reaction, ReactionTypeEmoji): continue
+
+        await message.add_reaction(reaction.emoji)
+
+app_tg.add_handler(MessageReactionHandler(callback))
 
 
 async def run_telegram():
@@ -182,7 +221,8 @@ async def run_telegram():
             secret_token=getenv("TELEGRAM_WEBHOOK_SECRET"),
             key=getenv("TELEGRAM_WEBHOOK_KEY"),
             cert=getenv("TELEGRAM_WEBHOOK_CERT"),
-            webhook_url="https://" + netloc
+            webhook_url="https://" + netloc,
+            allowed_updates=Update.ALL_TYPES,
         )
     else:
         await app_tg.updater.start_polling()
