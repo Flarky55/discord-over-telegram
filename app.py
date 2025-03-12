@@ -7,7 +7,7 @@ from typing import TypedDict
 from discord import Client, Message as DsMessage, DMChannel
 from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, ReactionTypeEmoji
 from telegram.ext import ApplicationBuilder, MessageHandler, MessageReactionHandler, ContextTypes, PicklePersistence, filters
-from telegram.constants import ReactionEmoji, ReactionType
+from telegram.constants import ReactionEmoji
 from telegram.error import BadRequest
 
 
