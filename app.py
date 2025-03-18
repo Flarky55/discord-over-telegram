@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import os.path
 from os import getenv
 from platform import system
 from collections import defaultdict
 from typing import TypedDict
-from discord import Client, Message as DsMessage, DMChannel
-from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, ReactionTypeEmoji
+from io import BytesIO
+from discord import Client, Message as DsMessage, DMChannel, File
+from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaDocument, ReactionTypeEmoji
 from telegram.ext import ApplicationBuilder, MessageHandler, MessageReactionHandler, ContextTypes, PicklePersistence, filters
 from telegram.constants import ReactionEmoji
 from telegram.error import BadRequest
@@ -22,12 +24,12 @@ logging.basicConfig(
 
 
 TRANSLATE_CONTENT_TYPE = {
-    "application/pdf": "document",
+    "application": "document",
     "text": "document",
     "image": "photo",
 }
 
-CONTENT_IN_CAPTION_MEDIA_TYPE = {"photo", "video"}
+CONTENT_IN_CAPTION_MEDIA_TYPE = {"photo", "video", "document"}
 
 
 class StoredDiscordMessage(TypedDict):
@@ -98,9 +100,16 @@ class SelfClient(Client):
                         media=attachment.url, has_spoiler=attachment.is_spoiler(),
                         caption=message.clean_content, show_caption_above_media=True)
                     )
+                case "document":
+                    # Telegram can't fetch these
+                    buf = await attachment.read()
+
+                    media[content_type].append(InputMediaDocument(
+                        media=buf, caption=message.clean_content, filename=attachment.filename
+                    ))
                 case _:
                     media[content_type].append(InputMedia(
-                        content_type, media=attachment.url)
+                        content_type, media=buf)
                     )
 
 
@@ -151,7 +160,7 @@ class SelfClient(Client):
 client_discord = SelfClient()
 
 
-# TODO: parse Markdown, send media
+# TODO: parse Markdown
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_id = context.bot_data.get(update.message.message_thread_id)
 
@@ -168,17 +177,34 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reference = channel.get_partial_message(message_data["id"])
 
+    attachments = (
+        update.message.photo[len(update.message.photo) - 1] if update.message.photo else None, 
+        update.message.video, update.message.audio, update.message.document, update.message.animation
+    )
 
-    message: DsMessage = await channel.send(update.message.text, reference=reference)
+    files = []
 
-    app_tg.bot_data.update({
+    for attachment in filter(lambda x: x is not None, attachments):
+        file = await attachment.get_file()
+
+        buf = await file.download_as_bytearray()
+
+        files.append(File(BytesIO(buf),
+                          attachment.file_name if hasattr(attachment, "file_name") else os.path.basename(file.file_path), 
+                          spoiler=update.message.has_media_spoiler)
+                     )
+
+
+    message: DsMessage = await channel.send(update.message.text or update.message.caption, reference=reference, files=files)
+
+    context.bot_data.update({
         message.id: [update.message.id],
         update.message.id: {"id": message.id, "channel_id": message.channel.id},
     })
 
     await app_tg.update_persistence()
 
-app_tg.add_handler(MessageHandler(filters.TEXT, callback))
+app_tg.add_handler(MessageHandler(filters.ALL, callback))
 
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
