@@ -190,7 +190,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buf = await file.download_as_bytearray()
 
         files.append(File(BytesIO(buf),
-                          attachment.file_name if hasattr(attachment, "file_name") else os.path.basename(file.file_path), 
+                          attachment.file_name if hasattr(attachment, "file_name") and attachment.file_name else os.path.basename(file.file_path),
                           spoiler=update.message.has_media_spoiler)
                      )
 
