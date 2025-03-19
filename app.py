@@ -109,7 +109,7 @@ class SelfClient(Client):
                     ))
                 case _:
                     media[content_type].append(InputMedia(
-                        content_type, media=buf)
+                        content_type, media=attachment.url)
                     )
 
 
