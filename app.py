@@ -4,12 +4,12 @@ import os.path
 from os import getenv
 from platform import system
 from collections import defaultdict
-from typing import TypedDict
+from typing import TypedDict, Callable
 from io import BytesIO
 from discord import Client, Message as DsMessage, DMChannel, File
 from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaDocument, ReactionTypeEmoji
 from telegram.ext import ApplicationBuilder, MessageHandler, MessageReactionHandler, ContextTypes, PicklePersistence, filters
-from telegram.constants import ReactionEmoji
+from telegram.constants import ReactionEmoji, ParseMode
 from telegram.error import BadRequest
 
 
@@ -46,6 +46,69 @@ app_tg = (
 )
 
 
+# TODO: change func name?
+async def relay_message(message: DsMessage, chat_id: int, message_thread_id: int, reply_to_message_id: int = None, format_message: Callable[[str, DsMessage], str] = None) -> list[TgMessage]:
+    # TODO: parse Markdown
+    content = message.clean_content
+    
+    if format_message:
+        content = format_message(content, message)
+
+    media = defaultdict(list)
+
+    for attachment in message.attachments:
+        content_type = attachment.content_type
+        content_type = TRANSLATE_CONTENT_TYPE.get(content_type, content_type).split("/")[0]
+        content_type = TRANSLATE_CONTENT_TYPE.get(content_type, content_type)
+
+        match content_type:
+            case "photo":
+                media[content_type].append(InputMediaPhoto(
+                    media=attachment.url, has_spoiler=attachment.is_spoiler(),
+                    caption=attachment.description or content, show_caption_above_media=not attachment.description)
+                )
+            case "video":
+                media[content_type].append(InputMediaVideo(
+                    media=attachment.url, has_spoiler=attachment.is_spoiler(),
+                    caption=content, show_caption_above_media=True)
+                )
+            case "document":
+                # Telegram can't fetch these by URL
+                buf = await attachment.read()
+
+                media[content_type].append(InputMediaDocument(
+                    media=buf, caption=content, filename=attachment.filename
+                ))
+            case _:
+                media[content_type].append(InputMedia(
+                    content_type, media=attachment.url)
+                )
+    
+
+    messages_relayed: list[TgMessage] = []
+
+    if content and not (sum(len(l) for l in media.values()) == 1 and set(media.keys()) <= CONTENT_IN_CAPTION_MEDIA_TYPE):
+        messages_relayed.append(
+            await app_tg.bot.send_message(chat_id, content, message_thread_id=message_thread_id, reply_to_message_id=reply_to_message_id)
+        )
+
+    for m in media.values():
+        messages_relayed.extend(
+            await app_tg.bot.send_media_group(chat_id, m, message_thread_id=message_thread_id, reply_to_message_id=reply_to_message_id)
+        )
+
+    return messages_relayed
+
+# TODO: change func name?
+async def persist(message: DsMessage, relayed: list[TgMessage]):
+    app_tg.bot_data.update({
+        message.id: [m.id for m in relayed],
+        **{m.id: {"id": message.id, "channel_id": message.channel.id} for m in relayed}
+    })
+
+    await app_tg.update_persistence()
+
+
 class SelfClient(Client):
     def __is_dm(self, message: DsMessage):
         if message.author == self.user:
@@ -61,7 +124,6 @@ class SelfClient(Client):
 
         thread_id: int = app_tg.bot_data.get(message.channel.id)
         thread_name = message.author.relationship.nick or message.author.display_name
-        message_reference_id = app_tg.bot_data.get(message.reference.message_id)[0] if message.reference else None
 
         if not thread_id:
             topic = await app_tg.bot.create_forum_topic(chat_id, thread_name)
@@ -81,58 +143,29 @@ class SelfClient(Client):
                 if e.message != "Topic_not_modified":
                     raise e
 
-        media = defaultdict(list)
+        message_reference_id = None
 
-        # TODO: support plain text files (.txt, .lua, etc.)
-        for attachment in message.attachments:
-            content_type = attachment.content_type
-            content_type = TRANSLATE_CONTENT_TYPE.get(content_type, content_type).split("/")[0]
-            content_type = TRANSLATE_CONTENT_TYPE.get(content_type, content_type)
+        if message.reference:
+            ids = app_tg.bot_data.get(message.reference.message_id)
 
-            match content_type:
-                case "photo":
-                    media[content_type].append(InputMediaPhoto(
-                        media=attachment.url, has_spoiler=attachment.is_spoiler(),
-                        caption=attachment.description or message.clean_content, show_caption_above_media=not attachment.description)
-                    )
-                case "video":
-                    media[content_type].append(InputMediaVideo(
-                        media=attachment.url, has_spoiler=attachment.is_spoiler(),
-                        caption=message.clean_content, show_caption_above_media=True)
-                    )
-                case "document":
-                    # Telegram can't fetch these
-                    buf = await attachment.read()
+            if ids:
+                message_reference_id = ids[0]
+            else:
+                message_reference = message.reference.cached_message or await message.channel.fetch_message(message.reference.message_id)
 
-                    media[content_type].append(InputMediaDocument(
-                        media=buf, caption=message.clean_content, filename=attachment.filename
-                    ))
-                case _:
-                    media[content_type].append(InputMedia(
-                        content_type, media=attachment.url)
-                    )
+                relayed: list[TgMessage] = await relay_message(message_reference, chat_id, thread_id, 
+                    format_message=lambda c, m: f"{m.author.display_name}\n{c}")
+
+                await persist(message_reference, relayed)
+                
+                message_reference_id = relayed[0].id
 
 
-        messages_relayed: list[TgMessage] = []
+        messages_relayed: list[TgMessage] = await relay_message(message, chat_id, thread_id, message_reference_id)
 
-        if message.clean_content and not (sum(len(l) for l in media.values()) == 1 and set(media.keys()) <= CONTENT_IN_CAPTION_MEDIA_TYPE):
-            # TODO: parse Markdown
-            messages_relayed.append(
-                await app_tg.bot.send_message(chat_id, message.clean_content, message_thread_id=thread_id, reply_to_message_id=message_reference_id)
-            )
+        await persist(message, messages_relayed)
 
-        for m in media.values():
-            messages_relayed.extend(
-                await app_tg.bot.send_media_group(chat_id, m, message_thread_id=thread_id, reply_to_message_id=message_reference_id)
-            )
-
-        app_tg.bot_data.update({
-            message.id: [m.id for m in messages_relayed],
-            **{m.id: {"id": message.id, "channel_id": message.channel.id} for m in messages_relayed}
-        })
-
-        await app_tg.update_persistence()
-
+    # TODO: proper handle embeds
     async def on_message_edit(self, before: DsMessage, after: DsMessage):
         chat_id = -1002413580346
 
@@ -152,6 +185,7 @@ class SelfClient(Client):
 
         if not message_ids:
             return
+
 
         for message_id in message_ids:
             await app_tg.bot.set_message_reaction(chat_id, message_id, ReactionEmoji.FIRE)
