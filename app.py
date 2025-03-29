@@ -47,6 +47,7 @@ app_tg = (
 
 
 # TODO: change func name?
+#       properly annotate return type
 async def relay_message(message: DsMessage, chat_id: int, message_thread_id: int, reply_to_message_id: int = None, format_message: Callable[[str, DsMessage], str] = None) -> list[TgMessage]:
     # TODO: parse Markdown
     content = message.clean_content
@@ -153,6 +154,7 @@ class SelfClient(Client):
             else:
                 message_reference = message.reference.cached_message or await message.channel.fetch_message(message.reference.message_id)
 
+                # TODO: nice quote display
                 relayed: list[TgMessage] = await relay_message(message_reference, chat_id, thread_id, 
                     format_message=lambda c, m: f"{m.author.display_name}\n{c}")
 
@@ -231,12 +233,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message: DsMessage = await channel.send(update.message.text or update.message.caption, reference=reference, files=files)
 
-    context.bot_data.update({
-        message.id: [update.message.id],
-        update.message.id: {"id": message.id, "channel_id": message.channel.id},
-    })
-
-    await app_tg.update_persistence()
+    await persist(message, [update.message.id])
 
 app_tg.add_handler(MessageHandler(filters.ALL, callback))
 
