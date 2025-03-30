@@ -233,7 +233,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message: DsMessage = await channel.send(update.message.text or update.message.caption, reference=reference, files=files)
 
-    await persist(message, [update.message.id])
+    await persist(message, [update.message])
 
 app_tg.add_handler(MessageHandler(filters.ALL, callback))
 
