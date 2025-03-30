@@ -198,6 +198,8 @@ client_discord = SelfClient()
 
 # TODO: parse Markdown
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.is_bot: return
+
     channel_id = context.bot_data.get(update.message.message_thread_id)
 
     channel = client_discord.get_channel(channel_id) or await client_discord.fetch_channel(channel_id)
