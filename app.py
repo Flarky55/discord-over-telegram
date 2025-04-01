@@ -4,7 +4,8 @@ import os.path
 from os import getenv
 from platform import system
 from collections import defaultdict
-from typing import TypedDict, Callable
+from typing import TypedDict
+from collections.abc import Callable
 from io import BytesIO
 from discord import Client, Message as DsMessage, DMChannel, File
 from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaDocument, ReactionTypeEmoji
@@ -47,7 +48,6 @@ app_tg = (
 
 
 # TODO: change func name?
-#       properly annotate return type
 async def relay_message(message: DsMessage, chat_id: int, message_thread_id: int, reply_to_message_id: int = None, format_message: Callable[[str, DsMessage], str] = None) -> list[TgMessage]:
     # TODO: parse Markdown
     content = message.clean_content
@@ -155,7 +155,7 @@ class SelfClient(Client):
                 message_reference = message.reference.cached_message or await message.channel.fetch_message(message.reference.message_id)
 
                 # TODO: nice quote display
-                relayed: list[TgMessage] = await relay_message(message_reference, chat_id, thread_id, 
+                relayed = await relay_message(message_reference, chat_id, thread_id, 
                     format_message=lambda c, m: f"{m.author.display_name}\n{c}")
 
                 await persist(message_reference, relayed)
@@ -163,7 +163,7 @@ class SelfClient(Client):
                 message_reference_id = relayed[0].id
 
 
-        messages_relayed: list[TgMessage] = await relay_message(message, chat_id, thread_id, message_reference_id)
+        messages_relayed = await relay_message(message, chat_id, thread_id, message_reference_id)
 
         await persist(message, messages_relayed)
 
