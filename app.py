@@ -8,7 +8,7 @@ from typing import TypedDict
 from collections.abc import Callable
 from io import BytesIO
 from discord import Client, Message as DsMessage, DMChannel, File
-from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaDocument, ReactionTypeEmoji
+from telegram import Update, Message as TgMessage, InputMedia, InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputFile, ReactionTypeEmoji
 from telegram.ext import ApplicationBuilder, MessageHandler, MessageReactionHandler, ContextTypes, PicklePersistence, filters
 from telegram.constants import ReactionEmoji, ParseMode
 from telegram.error import BadRequest
@@ -81,8 +81,10 @@ async def relay_message(message: DsMessage, chat_id: int, message_thread_id: int
                     media=buf, caption=content, filename=attachment.filename
                 ))
             case _:
+                buf = await attachment.read()
+
                 media[content_type].append(InputMedia(
-                    content_type, media=attachment.url)
+                    content_type, media=InputFile(buf, attachment.filename, True), caption=content)
                 )
     
 
