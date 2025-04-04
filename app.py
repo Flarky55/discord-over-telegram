@@ -48,7 +48,13 @@ app_tg = (
 
 
 # TODO: change func name?
-async def relay_message(message: DsMessage, chat_id: int, message_thread_id: int, reply_to_message_id: int = None, format_message: Callable[[str, DsMessage], str] = None) -> list[TgMessage]:
+async def relay_message(
+        message: DsMessage,
+        chat_id: int,
+        message_thread_id: int,
+        reply_to_message_id: int = None,
+        format_message: Callable[[str, DsMessage], str] = None
+) -> list[TgMessage]:
     # TODO: parse Markdown
     content = message.clean_content
     
@@ -180,7 +186,9 @@ class SelfClient(Client):
 
 
         # TODO: show diff
-        await app_tg.bot.send_message(chat_id, f"Изменено:\n{after.clean_content}", reply_to_message_id=message_ids[0])
+        message = await app_tg.bot.send_message(chat_id, f"Изменено:\n{after.clean_content}", reply_to_message_id=message_ids[0])
+        
+        await persist(before, [message])
 
     async def on_message_delete(self, message: DsMessage):
         chat_id = -1002413580346
