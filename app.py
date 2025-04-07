@@ -226,27 +226,37 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reference = channel.get_partial_message(message_data["id"])
 
-    attachments = (
-        update.message.photo[len(update.message.photo) - 1] if update.message.photo else None, 
-        update.message.video, update.message.audio, update.message.document, update.message.animation
-    )
+    
+    async def send(files = None):
+        print(files)
+        message: DsMessage = await channel.send(update.message.text or update.message.caption, reference=reference, files=files)
 
-    files = []
+        await persist(message, [update.message])
 
-    for attachment in filter(lambda x: x is not None, attachments):
+
+    if update.message.media_group_id:
+        jobs = context.job_queue.get_jobs_by_name(str(update.message.media_group_id))
+        job = jobs[0] if len(jobs) > 0 else None 
+
+        if not job:
+            async def callback(c: ContextTypes.DEFAULT_TYPE):
+                await send(c.job.data)
+
+            job = context.job_queue.run_once(callback, 2, [], str(update.message.media_group_id))
+
+        attachment = update.message.effective_attachment
+        if type(attachment) == tuple: attachment = attachment[-1]
+
         file = await attachment.get_file()
 
         buf = await file.download_as_bytearray()
 
-        files.append(File(BytesIO(buf),
+        job.data.append(File(BytesIO(buf),
                           attachment.file_name if hasattr(attachment, "file_name") and attachment.file_name else os.path.basename(file.file_path),
                           spoiler=update.message.has_media_spoiler)
                      )
-
-
-    message: DsMessage = await channel.send(update.message.text or update.message.caption, reference=reference, files=files)
-
-    await persist(message, [update.message])
+    else:
+        await send()
 
 app_tg.add_handler(MessageHandler(filters.ALL, callback))
 
