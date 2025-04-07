@@ -259,7 +259,10 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         job.data.append(await download_file())
     else:        
-        await send([await download_file()])
+        files = None
+        if update.message.effective_attachment:
+            files = [await download_file()]
+        await send(files)
 
 app_tg.add_handler(MessageHandler(filters.ALL, callback))
 
