@@ -207,6 +207,7 @@ client_discord = SelfClient()
 
 
 # TODO: parse Markdown
+#       cleanup this mess
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.message_thread_id or update.message.from_user.is_bot:
         return
@@ -228,10 +229,22 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
     async def send(files = None):
-        print(files)
         message: DsMessage = await channel.send(update.message.text or update.message.caption, reference=reference, files=files)
 
         await persist(message, [update.message])
+
+    async def download_file() -> File:
+        attachment = update.message.effective_attachment
+        if not attachment: return
+        if type(attachment) == tuple: attachment = attachment[-1]
+
+        file = await attachment.get_file()
+
+        buf = await file.download_as_bytearray()
+
+        return File(BytesIO(buf),
+                          attachment.file_name if hasattr(attachment, "file_name") and attachment.file_name else os.path.basename(file.file_path),
+                          spoiler=update.message.has_media_spoiler)
 
 
     if update.message.media_group_id:
@@ -244,19 +257,9 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             job = context.job_queue.run_once(callback, 2, [], str(update.message.media_group_id))
 
-        attachment = update.message.effective_attachment
-        if type(attachment) == tuple: attachment = attachment[-1]
-
-        file = await attachment.get_file()
-
-        buf = await file.download_as_bytearray()
-
-        job.data.append(File(BytesIO(buf),
-                          attachment.file_name if hasattr(attachment, "file_name") and attachment.file_name else os.path.basename(file.file_path),
-                          spoiler=update.message.has_media_spoiler)
-                     )
-    else:
-        await send()
+        job.data.append(await download_file())
+    else:        
+        await send([await download_file()])
 
 app_tg.add_handler(MessageHandler(filters.ALL, callback))
 
