@@ -9,8 +9,8 @@ class DiscordClient(Client):
 
         self.token = token
 
-    async def start(self) -> None:
-        return await super().start(self.token)
+    async def start(self):
+        await super().start(self.token)
 
     def is_forwardable_message(self, message: Message):
         if message.author == self.user:
