@@ -14,7 +14,3 @@ class BaseStorage(ABC):
     @abstractmethod
     def close(self):
         pass
-
-    def set_bidirectional(self, key: str, value: str):
-        self.set(key, value)
-        self.set(value, key)
