@@ -18,8 +18,9 @@ classifiers = [
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 dependencies = [
-    "aiogram"
-    "discord.py-self @ git+https://github.com/dolfies/discord.py-self"
+    "aiogram",
+    "discord.py-self @ git+https://github.com/dolfies/discord.py-self",
+    "emoji",
 ]
 
 [project.urls]
