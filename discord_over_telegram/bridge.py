@@ -2,7 +2,7 @@ import sys
 import traceback
 from .clients import DiscordClient, TelegramClient
 from .storage import BaseStorage
-from .utils import telegram_to_discord
+from .utils import discord_decoration
 from typing import Union
 from enum import Enum
 from datetime import datetime
@@ -120,9 +120,10 @@ class Bridge:
         return message_tg
         
     async def to_discord(self, message: TgMessage, channel: Messageable, reference: Union[DsMessage, PartialMessage] = None) -> DsMessage:
-        content = telegram_to_discord(message)
+        content = message.text
 
-        print(content)
+        if message.entities:
+            content = discord_decoration.unparse(content, message.entities)
 
         message_ds = await channel.send(
             content, 

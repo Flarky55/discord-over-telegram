@@ -1,84 +1,50 @@
-from abc import abstractmethod
-from aiogram.types import Message as TgMessage, MessageEntity
-from discord import Message as DsMessage
-from aiogram.utils.text_decorations import MarkdownDecoration
+import re
+from typing import Pattern
+from aiogram.utils.text_decorations import TextDecoration
 
 
-WRAP_STRINGS = {
-    "bold": "**",
-    "italic": "*",
-    "underline": "__",
-    "strikethrough": "~~",
-    "spoiler": "||",
-    "code": "`",
-    "pre": "```"
-}
+
+class DiscordDecoration(TextDecoration):
+    MARKDOWN_QUOTE_PATTERN: Pattern[str] = re.compile(r"([_*\[\]()~`>#+\-=|{}.!\\])")
+
+    def link(self, value: str, link: str) -> str:
+        return f"[{value}]({link})"
+
+    def bold(self, value: str) -> str:
+        return f"**{value}**"
+
+    def italic(self, value: str) -> str:
+        return f"_\r{value}_\r"
+
+    def code(self, value: str) -> str:
+        return f"`{value}`"
+
+    def pre(self, value: str) -> str:
+        return f"```\n{value}\n```"
+
+    def pre_language(self, value: str, language: str) -> str:
+        return f"```{language}\n{value}\n```"
+
+    def underline(self, value: str) -> str:
+        return f"__\r{value}__\r"
+
+    def strikethrough(self, value: str) -> str:
+        return f"~~{value}~~"
+
+    def spoiler(self, value: str) -> str:
+        return f"||{value}||"
+
+    def quote(self, value: str) -> str:
+        return re.sub(pattern=self.MARKDOWN_QUOTE_PATTERN, repl=r"\\\1", string=value)
+
+    def custom_emoji(self, value: str, custom_emoji_id: str) -> str:
+        return custom_emoji_id
+
+    def blockquote(self, value: str) -> str:
+        return "\n".join(f"> {line}" for line in value.splitlines())
+
+    def expandable_blockquote(self, value: str) -> str:
+        return self.blockquote(self, value)
 
 
-class Transformer:
-    def __init__(self, entity: MessageEntity):
-        self.start  = entity.offset
-        self.end    = self.start + entity.length
-    
-    def __lt__(self, other: "Transformer"):
-        return self.start < other.start
-    
-    @abstractmethod
-    def transform(self, content: str) -> str:
-        pass
-
-
-class WrapTransformer(Transformer):
-    def __init__(self, entity: MessageEntity):
-        super().__init__(entity)
-
-        self.str = WRAP_STRINGS[entity.type]
-
-    def transform(self, content):
-        return content[:self.start] + self.str + content[self.start:self.end] + self.str + content[self.end:]
-
-class PreWrapTransformer(WrapTransformer):
-    def __init__(self, entity):
-        super().__init__(entity)
-
-        self.language = entity.language
-
-    def transform(self, content):
-        return content[:self.start] + self.str + self.language + "\n" + content[self.start:self.end] + self.str + content[self.end:]
-
-
-class QuoteTransformer(Transformer):
-    def transform(self, content):
-        entity_content = content[self.start:self.end]
-        entity_content = entity_content.replace("\n", "\n> ")
-
-        return content[:self.start] + "> " + entity_content + content[self.end:]
-
-
-def telegram_to_discord(message: TgMessage) -> str:
-    content = message.text
-
-    if message.entities:
-        transformers: list[Transformer] = []
-
-        for entity in message.entities:
-            match entity.type:
-                case "pre":
-                    transformers.append(PreWrapTransformer(entity))
-                case "blockquote" | "expandable_blockquote":
-                    transformers.append(QuoteTransformer(entity))
-                case _:
-                    if entity.type not in WRAP_STRINGS: 
-                        continue
-
-                    transformers.append(WrapTransformer(entity))
-
-        transformers.sort(reverse=True)
-
-        for transformer in transformers:
-            content = transformer.transform(content)
-
-    return content
-
-def discord_to_telegram(message: DsMessage) -> str:
-    pass
+discord_decoration = DiscordDecoration()
