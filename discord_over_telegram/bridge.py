@@ -2,31 +2,20 @@ import sys
 import traceback
 from .clients import DiscordClient, TelegramClient
 from .storage import BaseStorage
-from .utils import discord_to_telegram
+from .utils import telegram_to_discord
 from typing import Union
 from enum import Enum
 from datetime import datetime
-from types import TracebackType
 from discord import Message as DsMessage, Reaction, Member, User, Relationship, RelationshipType, DMChannel, PartialMessage, PrivateCall, GroupCall
 from discord.abc import Messageable
 from aiogram import F
-from aiogram.types import Message as TgMessage, MessageReactionUpdated, Poll, PollAnswer, ReactionTypeEmoji, ReplyParameters
+from aiogram.types import Message as TgMessage, MessageReactionUpdated, Poll, PollAnswer, ReactionTypeEmoji, ReplyParameters, MessageEntity
 from aiogram.filters import Command, CommandObject
 from aiogram.utils.formatting import Text, Bold, BlockQuote, Pre
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.enums import TopicIconColor
 from emoji import is_emoji
 
-
-WRAP_STRINGS = {
-    "bold": "**",
-    "italic": "*",
-    "underline": "__",
-    "strikethrough": "~~",
-    "spoiler": "||",
-    "code": "`",
-    "pre": "```"
-}
 
 class CommonTopic(Enum):
     LOGS = 1
@@ -120,8 +109,7 @@ class Bridge:
             content = BlockQuote(Bold(message.author.display_name), "\n", content)
         
         message_tg = await self.telegram.bot.send_message(
-            self.chat_id, 
-            message_thread_id=message_thread_id, 
+            self.chat_id, message_thread_id=message_thread_id, 
             reply_parameters=ReplyParameters(message_id=reply_message_id) if reply_message_id else None,
             **content.as_kwargs()
         )
@@ -132,16 +120,10 @@ class Bridge:
         return message_tg
         
     async def to_discord(self, message: TgMessage, channel: Messageable, reference: Union[DsMessage, PartialMessage] = None) -> DsMessage:
-        content = message.text
+        content = telegram_to_discord(message)
 
-        if message.entities:
-            wrappings = []
+        print(content)
 
-            for e in message.entities:
-                wrappings.append(
-                    (e.type, e.offset, e.offset + e.length)
-                )
-        
         message_ds = await channel.send(
             content, 
             reference=reference
@@ -194,7 +176,6 @@ class Bridge:
         channel_id = self.db.get(self._db_unique(message_thread_id, "channel"))
 
         return self.discord.get_channel(channel_id) or await self.discord.fetch_channel(channel_id)
-
 
     """"""
 
