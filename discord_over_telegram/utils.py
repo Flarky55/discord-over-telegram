@@ -3,7 +3,6 @@ from typing import Pattern
 from aiogram.utils.text_decorations import TextDecoration
 
 
-
 class DiscordDecoration(TextDecoration):
     MARKDOWN_QUOTE_PATTERN: Pattern[str] = re.compile(r"([_*\[\]()~`>#+\-=|{}.!\\])")
 

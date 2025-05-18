@@ -14,7 +14,7 @@ class BridgeManager:
     async def start(self):
         await asyncio.gather(
             self.telegram.start(),
-            *(bridge.start() for bridge in self.bridges)
+            *(bridge.start() for bridge in self.bridges),
         )
 
     """"""

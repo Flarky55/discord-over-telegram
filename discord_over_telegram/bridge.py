@@ -3,15 +3,15 @@ import traceback
 from .clients import DiscordClient, TelegramClient
 from .storage import BaseStorage
 from .utils import discord_decoration
-from typing import Union
+from typing import Union, cast
 from enum import Enum
 from datetime import datetime
-from discord import Message as DsMessage, Reaction, Member, User, Relationship, RelationshipType, DMChannel, PartialMessage, PrivateCall, GroupCall
+from discord import Message as DsMessage, Reaction, Member, User, Relationship, RelationshipType, DMChannel, PartialMessage, PrivateCall, GroupCall, File
 from discord.abc import Messageable
 from aiogram import F
-from aiogram.types import Message as TgMessage, MessageReactionUpdated, Poll, PollAnswer, ReactionTypeEmoji, ReplyParameters, MessageEntity
+from aiogram.types import Message as TgMessage, MessageReactionUpdated, Poll, PollAnswer, ReactionTypeEmoji, ReplyParameters
 from aiogram.filters import Command, CommandObject
-from aiogram.utils.formatting import Text, Bold, BlockQuote, Pre
+from aiogram.utils.formatting import Text, Bold, Italic, BlockQuote, Pre
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.enums import TopicIconColor
 from emoji import is_emoji
@@ -31,6 +31,14 @@ class Bridge:
 
         self.chat_id = chat_id
 
+        telegram.dp.message.register(self._handle_telegram_command_react, Command("react"), F.chat.id == chat_id)
+
+        telegram.dp.message.register(self._handle_telegram_message, F.chat.id == chat_id)
+        telegram.dp.edited_message.register(self._handle_telegram_message_edit, F.chat.id == chat_id)
+        telegram.dp.message_reaction.register(self._handle_telegram_reaction_update, F.chat.id == chat_id)
+        telegram.dp.poll.register(self._handle_telegram_poll, F.chat.id == chat_id)
+        telegram.dp.poll_answer.register(self._handle_telegram_poll_answer, F.chat.id == chat_id)
+
     """"""
     
     async def start(self):
@@ -39,14 +47,6 @@ class Bridge:
             CommonTopic.RELATIONSHIPS:    await self.create_unique_topic("relationships", "Relationships", TopicIconColor.ROSE),
             CommonTopic.CALLS:            await self.create_unique_topic("calls", "Calls", TopicIconColor.GREEN),
         }
-
-        self.telegram.dp.message.register(self._handle_telegram_command_react, Command("react"), F.chat.id == self.chat_id)
-
-        self.telegram.dp.message.register(self._handle_telegram_message, F.chat.id == self.chat_id)
-        self.telegram.dp.edited_message.register(self._handle_telegram_message_edit, F.chat.id == self.chat_id)
-        self.telegram.dp.message_reaction.register(self._handle_telegram_reaction_update, F.chat.id == self.chat_id)
-        self.telegram.dp.poll.register(self._handle_telegram_poll, F.chat.id == self.chat_id)
-        self.telegram.dp.poll_answer.register(self._handle_telegram_poll_answer, F.chat.id == self.chat_id)
 
         self.discord.register_event("on_ready", self._on_discord_ready)
         self.discord.register_event("on_connect", self._on_discord_connect)
@@ -119,15 +119,31 @@ class Bridge:
 
         return message_tg
         
-    async def to_discord(self, message: TgMessage, channel: Messageable, reference: Union[DsMessage, PartialMessage] = None) -> DsMessage:
-        content = message.text
+    async def to_discord(self, message: TgMessage, channel: DMChannel, reference: Union[DsMessage, PartialMessage] = None, files: list[File] = None) -> DsMessage:
+        content = message.text or message.caption
+        file = None
 
-        if message.entities:
-            content = discord_decoration.unparse(content, message.entities)
+        entities = message.entities or message.caption_entities
 
-        message_ds = await channel.send(
-            content, 
-            reference=reference
+        if content and entities:
+            content = discord_decoration.unparse(content, entities)
+            
+        if self.telegram.has_attachment(message):
+            file = await self.telegram.download_as_discord_file(message)
+
+        date_timestamp = message.date.timestamp()
+        delay = datetime.now().timestamp() - date_timestamp
+
+        if delay > 2:
+            date_timestamp_rounded = round(date_timestamp)
+
+            content += f"\n-# Отправлено <t:{date_timestamp_rounded}:f> (<t:{date_timestamp_rounded}:R>) с задержкой {delay:,.3}s"
+
+        message_ds: DsMessage = await channel.send(
+            content,
+            reference=reference,
+            files=files,
+            file=file
         )
         
         self.db.set(self._db_unique(message.message_id, "message"), message_ds.id)
@@ -166,7 +182,7 @@ class Bridge:
     def has_discord_topic(self, message_thread_id: int) -> bool:
         return self.db.get(self._db_unique(message_thread_id, "channel")) is not None
 
-    async def get_telegram_channel(self, channel: DMChannel, user: Union[User, Member]) -> int:
+    async def get_telegram_topic(self, channel: DMChannel, user: Union[User, Member]) -> int:
         name = user.relationship.nick or user.display_name
 
         message_thread_id = await self.create_discord_topic(channel.id, name)
@@ -181,6 +197,7 @@ class Bridge:
     """"""
 
     async def _handle_telegram_command_react(self, message: TgMessage, command: CommandObject):
+        # TODO: proper check if message is reply
         if not message.reply_to_message:
             return
         
@@ -196,22 +213,26 @@ class Bridge:
 
         await message_ds.add_reaction(emoji)
 
-    async def _handle_telegram_message(self, message: TgMessage, media_events: list[TgMessage] = []):
+    async def _handle_telegram_message(self, message: TgMessage, media_group: list[TgMessage] = None):
         if not self.has_discord_topic(message.message_thread_id):
             return
         
         channel = await self.get_discord_channel(message.message_thread_id)
         reference = None
+        files = None
 
         if message.reply_to_message:
             reference = await self.get_discord_message(message.reply_to_message, channel, True)
 
+        if media_group:
+            files = [await self.telegram.download_as_discord_file(media) for media in media_group]
+
         try:
-            await self.to_discord(message, channel, reference)
+            await self.to_discord(message, channel, reference, files)
         except:
             await self.send_message_to_common_topic(
                 CommonTopic.LOGS, reply_parameters=ReplyParameters(message_id=message.message_id),
-                **Text(Bold("Ошибка!"), "\n", Pre(traceback.format_exc())).as_kwargs()
+                **Text(Bold("Error : Telegram"), "\n", Pre(traceback.format_exc())).as_kwargs()
             )
 
     async def _handle_telegram_message_edit(self, message: TgMessage):
@@ -255,7 +276,7 @@ class Bridge:
         if not self.discord.is_forwardable_message(message):
             return
         
-        message_thread_id = await self.get_telegram_channel(message.channel, message.author)
+        message_thread_id = await self.get_telegram_topic(message.channel, message.author)
         reply_message_id = None
 
         if message.reference:
@@ -269,7 +290,7 @@ class Bridge:
         except:
             await self.send_message_to_common_topic(
                 CommonTopic.LOGS,
-                **Text(Bold("Ошибка!"), "\n", message.content).as_kwargs()
+                **Text(Bold("Error : Discord"), "\n", message.jump_url, "\n", Pre(message.content), "\n", Pre(traceback.format_exc())).as_kwargs()
             )
 
 
@@ -277,7 +298,7 @@ class Bridge:
         if not self.discord.is_forwardable_message(after):
             return
         
-        message_thread_id = await self.get_telegram_channel(after.channel, after.author)
+        message_thread_id = await self.get_telegram_topic(after.channel, after.author)
         message_id = await self.get_telegram_message(after, message_thread_id)
 
         message_tg = await self.telegram.bot.send_message(
@@ -291,7 +312,7 @@ class Bridge:
         if not self.discord.is_forwardable_message(message):
             return
         
-        message_thread_id = await self.get_telegram_channel(message.channel, message.author)
+        message_thread_id = await self.get_telegram_topic(message.channel, message.author)
         message_id = await self.get_telegram_message(message, message_thread_id)
 
         await self.telegram.bot.set_message_reaction(self.chat_id, message_id, [ReactionTypeEmoji(emoji="🔥")], True)
@@ -312,7 +333,7 @@ class Bridge:
         
         return
         
-        message_thread_id = await self.get_telegram_channel(channel, user)
+        message_thread_id = await self.get_telegram_topic(channel, user)
 
         await self.telegram.bot.send_message(
             self.chat_id, message_thread_id=message_thread_id, 
