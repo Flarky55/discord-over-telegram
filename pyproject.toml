@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "discord-over-telegram"
+version = "2.0.0"
+authors = [
+  { name="Flarky55" },
+]
+description = "Links Discord account with any Telegram forum chat"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "aiogram",
+    "discord.py-self @ git+https://github.com/dolfies/discord.py-self",
+    "emoji",
+]
+
+[project.urls]
+Homepage = "https://github.com/Flarky55/discord-over-telegram"
+Issues = "https://github.com/Flarky55/discord-over-telegram/issues"

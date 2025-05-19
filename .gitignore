@@ -2,8 +2,8 @@
 *.pem
 *.key
 
-# Python pickle
-data.pickle
+# Database
+data.db
 
 
 # Byte-compiled / optimized / DLL files
