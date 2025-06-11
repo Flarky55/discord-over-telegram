@@ -1,7 +1,14 @@
 import asyncio
 from typing import Callable, Coroutine, Any
-from discord import Client, Message, DMChannel
+from discord import Client, Message, DMChannel, Attachment
 from discord.abc import Messageable
+
+
+TRANSLATION = {
+    "image": "photo",
+    "application": "document",
+    "text": "document",
+}
 
 
 class DiscordClient(Client):
@@ -14,6 +21,13 @@ class DiscordClient(Client):
         await super().start(self.token)
 
     """"""
+
+    @staticmethod
+    def get_telegram_attachment_type(attachment: Attachment):
+        mime_type = attachment.content_type
+        _type = mime_type.split("/")[0]
+
+        return TRANSLATION.get(_type, _type)
 
     @staticmethod
     def is_forwardable_channel(channel: Messageable):

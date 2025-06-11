@@ -9,9 +9,10 @@ from datetime import datetime
 from discord import Message as DsMessage, Reaction, Member, User, Relationship, RelationshipType, DMChannel, PartialMessage, PrivateCall, GroupCall, File
 from discord.abc import Messageable
 from aiogram import F
-from aiogram.types import Message as TgMessage, MessageReactionUpdated, Poll, PollAnswer, ReactionTypeEmoji, ReplyParameters
+from aiogram.types import Message as TgMessage, MessageReactionUpdated, Poll, PollAnswer, ReactionTypeEmoji, ReplyParameters, BufferedInputFile
 from aiogram.filters import Command, CommandObject
 from aiogram.utils.formatting import Text, Bold, Italic, BlockQuote, Pre
+from aiogram.utils.media_group import MediaGroupBuilder
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.enums import TopicIconColor
 from emoji import is_emoji
@@ -103,21 +104,54 @@ class Bridge:
     """"""
 
     async def to_telegram(self, message: DsMessage, message_thread_id: int = None, reply_message_id: int = None) -> TgMessage:
+        messages_tg: list[TgMessage] = []
+
+
         content = Text(message.content)
-        
+
         if message.author == self.discord.user:
             content = BlockQuote(Bold(message.author.display_name), "\n", content)
-        
-        message_tg = await self.telegram.bot.send_message(
-            self.chat_id, message_thread_id=message_thread_id, 
-            reply_parameters=ReplyParameters(message_id=reply_message_id) if reply_message_id else None,
-            **content.as_kwargs()
-        )
 
-        self.db.set(self._db_unique(message.id, "message"), message_tg.message_id)
-        self.db.set(self._db_unique(message_tg.message_id, "message"), message.id)
+        if len(message.attachments) > 0:
+            media_group = MediaGroupBuilder(caption=content)
+            
+            for attahcment in message.attachments:
+                media_type = self.discord.get_telegram_attachment_type(attahcment)
 
-        return message_tg
+                if media_type in ("photo", "video"):
+                    media_group.add(
+                        type=media_type, media=attahcment.url, has_spoiler=attahcment.is_spoiler(),
+                        **content.as_caption_kwargs()
+                    ) 
+                else:
+                    buf = await attahcment.read()
+
+                    media_group.add(
+                        type=media_type, media=BufferedInputFile(buf, attahcment.filename)
+                    )
+
+            messages_tg.append(
+                await self.telegram.bot.send_media_group(
+                    self.chat_id, message_thread_id=message_thread_id,
+                    reply_parameters=ReplyParameters(message_id=reply_message_id) if reply_message_id else None,
+                    media=media_group.build(),
+                )
+            )
+        else:
+            messages_tg.append(
+                await self.telegram.bot.send_message(
+                    self.chat_id, message_thread_id=message_thread_id, 
+                    reply_parameters=ReplyParameters(message_id=reply_message_id) if reply_message_id else None,
+                    **content.as_kwargs()
+                )
+            )
+
+        self.db.set(self._db_unique(message.id, "message"), messages_tg[0].message_id)
+
+        for message_tg in messages_tg:
+            self.db.set(self._db_unique(message_tg.message_id, "message"), message.id)
+
+        return messages_tg
         
     async def to_discord(self, message: TgMessage, channel: DMChannel, reference: Union[DsMessage, PartialMessage] = None, files: list[File] = None) -> DsMessage:
         content = message.text or message.caption

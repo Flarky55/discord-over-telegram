@@ -13,5 +13,8 @@ class ShelveStorage(BaseStorage):
     def set(self, key: str, value: Any):
         self.shelf[key] = value
 
+    def update(self):
+        self.shelf.update()
+
     def close(self):
         self.shelf.close()
